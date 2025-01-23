@@ -1,5 +1,8 @@
 #include <DHT11.h>
 #include <LiquidCrystal.h>
+#include <IRremote.h>
+#include <Wire.h>
+#include <RTClib.h>
 const int rs = 2,
           en = 3,
           d4 = 6,
@@ -11,68 +14,80 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 const int dry = 527;
 const int wet = 200;
+int percHum = 0;
+
+RTC_DS1307 rtc;
+
+#define SENSOR_PIN 4
 
 DHT11 dht11(10);
 
-const int waterAnalogPin = A4;
-const int waterSensorPowerPin = 11;
-const int waterLevelLow = 50;
-const int waterLevelMiddle = 280;
-const int waterLevelHigh = 330;
+int receiver = 11; // Signal Pin of IR receiver to Arduino Digital Pin 11
 
-#define key1 A0  //connect wire 1 to pin A0
-#define key2 A1  //connect wire 2 to pin A1
-#define key3 A2  //connect wire 3 to pin A2
-#define key4 A3  //connect wire 4 to pin A3
+/*-----( Declare objects )-----*/
+IRrecv irrecv(receiver);     // create instance of 'irrecv'
+//vairable uses to store the last decodedRawData
+uint32_t last_decodedRawData = 0;
+/*-----( Function )-----*/
+int translateIR() // takes action based on IR code received
+{
+  
+  uint32_t value = irrecv.decodedIRData.decodedRawData;
 
+    if (irrecv.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) {
+      value = last_decodedRawData;  // Wiederholung des letzten Signals
+    } else {
+      last_decodedRawData = value;  // Neues Signal speichern
+    }
+  //map the IR code to the remote key
+  switch (irrecv.decodedIRData.decodedRawData)
+  {
+
+    case 0xF30CFF00: return 1;   break;
+    case 0xE718FF00: return 2;   break;
+    case 0xA15EFF00: return 3;   break;
+    case 0xF708FF00: return 4;   break;
+    default:
+      return 0;
+  }// End Case
+  //store the last decodedRawData
+  last_decodedRawData = irrecv.decodedIRData.decodedRawData;
+  delay(500); // Do not get immediate repeat
+} //END translateIR
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   lcd.begin(16, 2);
   lcd.setCursor(0, 0);
-  pinMode(waterAnalogPin, INPUT);
-  pinMode(waterSensorPowerPin, OUTPUT);
-  pinMode(key1, INPUT_PULLUP);  // set pin as input
-  pinMode(key2, INPUT_PULLUP);  // set pin as input
-  pinMode(key3, INPUT_PULLUP);  // set pin as input
-  pinMode(key4, INPUT_PULLUP);  // set pin as input
-  pinMode(1,OUTPUT);
+  pinMode(5,OUTPUT);
+  pinMode(SENSOR_PIN, INPUT_PULLUP);  // Eingang mit Pull-up-Widerstand
+  irrecv.enableIRIn(); // Start the receiver
+  // Überprüfen, ob die RTC verfügbar ist
+  if (!rtc.begin()) {
+    Serial.println("RTC nicht gefunden!");
+    while (1);
+  }
+  
+  // Prüfen, ob die Uhr läuft
+  if (!rtc.isrunning()) {
+    Serial.println("RTC läuft nicht! Stelle die Zeit ein...");
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));  // Stellt die Uhr auf Kompilierungszeit
+  }
 }
-
-int Wasserstand() {
-  digitalWrite(waterSensorPowerPin, HIGH);  // Schaltet den Strom für den Sensor ein
-  delay(100);
-  int waterAnalog = analogRead(waterAnalogPin);
-  digitalWrite(waterSensorPowerPin, LOW);  //Sensor wieder aus
-  return waterAnalog;                      //Rückgabe des Wasserstands als analoger Wert
-}
-
-int Bodenfeuchte() {
-  int sensval = analogRead(A5);
-  int percHum = map(sensval, wet, dry, 100, 0);  //Skala von 0-100 (Prozentwert) in der der gemessene Wert Umgewandelt wird
-  return percHum;
-}
-
-int Luftfeuchtigkeit() {
-  int hum = dht11.readHumidity();
-  return hum;  //Rückgabe der Luftfeuchtigkeit
-}
-
-int Temperatur() {
-  int temp = dht11.readTemperature();
-  return temp;  //Rückgabe der Temperatur
-}
-
-
-
 
 void loop() {
   //Bewässerung, falls genug Wasser vorhanden
-  if (Bodenfeuchte < 15) {
-    if (Wasserstand() > waterLevelMiddle) {
+  percHum = map(analogRead(A5), wet, dry, 100, 0);
+  DateTime now = rtc.now();  // Aktuelle Zeit abrufen
+  // UTC +1 (Mitteleuropäische Zeit)
+  int hour_adjusted = now.hour() -7;  
+
+  // Sicherstellen, dass es nicht über 23 hinausgeht
+  hour_adjusted = hour_adjusted % 24;
+  if (percHum < 15) {
+    if (digitalRead(SENSOR_PIN) == LOW) {
       digitalWrite(12, HIGH);
-      lcd.display();
       lcd.print("Bewässerung im");
       lcd.setCursor(0, 1);
       lcd.print("Gange. Pls Wait");
@@ -80,66 +95,60 @@ void loop() {
       delay(10000);
       digitalWrite(12,LOW);
       lcd.clear();
-      lcd.noDisplay();
-      lcd.clear();
     } else {
-      lcd.display();
       lcd.print("Wasser auffüllen");
-      while(Wasserstand() < waterLevelMiddle){
-      digitalWrite(1,HIGH);
+      while(digitalRead(SENSOR_PIN) == HIGH){
+      digitalWrite(5,HIGH);
       delay(10);
-      digitalWrite(1,LOW);
+      digitalWrite(5,LOW);
       delay(10);
       }
+      lcd.clear();
     }
   }
-  int key1S = digitalRead(key1);  // read if key1 is pressed
-  int key2S = digitalRead(key2);  // read if key1 is pressed
-  int key3S = digitalRead(key3);  // read if key1 is pressed
-  int key4S = digitalRead(key4);  // read if key1 is pressed
-  if (!key1S) {
-    lcd.display();
-    lcd.print("Boden:");
-    lcd.print(Bodenfeuchte());
-    lcd.print("%");
-    delay(2000);
-    lcd.noDisplay();
-    lcd.clear();
-  } else if (!key2S) {
-    lcd.display();
-    lcd.print("Luft:");
-    lcd.print(Luftfeuchtigkeit());
-    lcd.print("%");
-    delay(2000);
-    lcd.noDisplay();
-    lcd.clear();
-  } else if (!key3S) {
-    lcd.display();
-    lcd.print("Temperatur:");
-    lcd.print(Temperatur());
-    lcd.print("°C");
-    delay(2000);
-    lcd.noDisplay();
-    lcd.clear();
-  } else if (!key4S) {
-    lcd.display();
-    lcd.print("Wasserstand:");
-    if (Wasserstand() <= waterLevelLow) {
-      lcd.setCursor(0, 1);
-      lcd.print("Leer");
-    } else if (Wasserstand() > waterLevelLow && Wasserstand() <= waterLevelMiddle) {
-      lcd.setCursor(0, 1);
-      lcd.print("Fast Leer");
-    } else if (Wasserstand() > waterLevelMiddle && Wasserstand() <= waterLevelHigh) {
-      lcd.setCursor(0, 1);
-      lcd.print("Fast Leer");
-    } else if (Wasserstand() > waterLevelHigh) {
-      lcd.setCursor(0, 1);
-      lcd.print("Voll genug");
-    }
-    delay(2000);
-    lcd.setCursor(0, 0);
-    lcd.noDisplay();
-    lcd.clear();
+  int IRSignal = translateIR();
+  switch(IRSignal)
+  {
+    case 1: 
+            lcd.print("Luftfeuchtigkeit:");
+            lcd.println(dht11.readHumidity());
+            lcd.print("%");            
+            delay(1000);
+            lcd.clear();
+            
+            break;
+    case 2: 
+            lcd.print("Temperatur:");
+            lcd.println(dht11.readTemperature());
+            lcd.print("°C");
+            delay(1000);
+            lcd.clear();
+            
+            break;
+    case 3: 
+            lcd.print("Bodenfeuchtigkeit:");
+            lcd.println(percHum);
+            lcd.print("%");
+            delay(1000);
+            lcd.clear();
+            
+            break;
+    case 4: 
+            lcd.print("WasserStand:");
+            if(digitalRead(SENSOR_PIN)==LOW){
+              lcd.println("Genug");
+            }
+            else{
+              lcd.println("Zu Wenig");
+            }
+
+            delay(1000);
+            lcd.clear();
+            
+            break;
+    default:
+      break;
+    IRSignal=0;
   }
+
 }
