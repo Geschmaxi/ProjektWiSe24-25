@@ -1,6 +1,6 @@
 #include <DHT11.h>
 #include <LiquidCrystal.h>
-#include <IRremote.h>
+#include <IRremote.hpp>
 #include <Wire.h>
 #include <RTClib.h>
 const int rs = 2,
@@ -61,46 +61,72 @@ void setup() {
   lcd.begin(16, 2);
   lcd.setCursor(0, 0);
   pinMode(5,OUTPUT);
+  pinMode(12,OUTPUT);
+  pinMode(A0,OUTPUT);
   pinMode(SENSOR_PIN, INPUT_PULLUP);  // Eingang mit Pull-up-Widerstand
   irrecv.enableIRIn(); // Start the receiver
   // Überprüfen, ob die RTC verfügbar ist
-  if (!rtc.begin()) {
-    Serial.println("RTC nicht gefunden!");
-    while (1);
-  }
   
-  // Prüfen, ob die Uhr läuft
-  if (!rtc.isrunning()) {
-    Serial.println("RTC läuft nicht! Stelle die Zeit ein...");
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));  // Stellt die Uhr auf Kompilierungszeit
-  }
 }
 
 void loop() {
   //Bewässerung, falls genug Wasser vorhanden
-  percHum = map(analogRead(A5), wet, dry, 100, 0);
+  percHum = map(analogRead(A3), wet, dry, 100, 0);
   DateTime now = rtc.now();  // Aktuelle Zeit abrufen
   // UTC +1 (Mitteleuropäische Zeit)
-  int hour_adjusted = now.hour() -7;  
+  int hour_adjusted = now.hour() -7; 
+  hour_adjusted = hour_adjusted % 24; 
+  lcd.setCursor(0, 0);       //bis Zeile 97 Ausgabe der aktuellen Zeit und Datum  
+  lcd.print("Datum: ");
+  lcd.print(now.day());
+  lcd.print(".");
+  lcd.print(now.month());
+  lcd.print(".");
+  lcd.print(now.year());
 
-  // Sicherstellen, dass es nicht über 23 hinausgeht
-  hour_adjusted = hour_adjusted % 24;
+  lcd.setCursor(0, 1);
+  lcd.print("Zeit:  ");
+  if (hour_adjusted < 10) lcd.print("0"); // Falls nötig, führende Null hinzufügen
+  lcd.print(hour_adjusted);
+  lcd.print(":");
+  if (now.minute() < 10) lcd.print("0");
+  lcd.print(now.minute());
+  lcd.print(":");
+  if (now.second() < 10) lcd.print("0");
+  lcd.print(now.second());
+  lcd.setCursor(0, 0);
+  if(dht11.readTemperature()>=30){    //Temperatur sollte möglichst nicht 
+    digitalWrite(A0,HIGH);            //über 30°C bleiben
+    while(dht11.readTemperature()>=30){
+      delay(10);
+    }
+    digitalWrite(A0,LOW)
+  }
+  if(hour_adjusted == 7)  //7 Uhr Licht an
+    digitalWrite(13,HIGH);
+  if(hour_adjusted==21)   //21 Uhr Licht aus
+    digitalWrite(13,LOW);
+  if(now.day()%3==0)  //Lüfter läuft an jedem Dritten tag des Monats
+    if(hour_adjusted==12)//von 12 Uhr
+      digitalWrite(A0,High);
+    if(hour_adjusted==13)//bis 13 Uhr
+      digitalWrite(A0,LOW);
   if (percHum < 15) {
-    if (digitalRead(SENSOR_PIN) == LOW) {
-      digitalWrite(12, HIGH);
-      lcd.print("Bewässerung im");
+    if (digitalRead(SENSOR_PIN) == LOW) {   //Wasserstand hoch genug starte Bewässerung
+      digitalWrite(12, HIGH);     //Pumpe an
+      lcd.print("Bewaesserung im");
       lcd.setCursor(0, 1);
       lcd.print("Gange. Pls Wait");
       lcd.setCursor(0, 0);
       delay(10000);
-      digitalWrite(12,LOW);
+      digitalWrite(12,LOW);       //Pumpe aus
       lcd.clear();
     } else {
       lcd.print("Wasser auffüllen");
-      while(digitalRead(SENSOR_PIN) == HIGH){
-      digitalWrite(5,HIGH);
+      while(digitalRead(SENSOR_PIN) == HIGH){   //Loop wenn Wasserstand zu niedrig
+      digitalWrite(5,HIGH);     //strom an Buzzer an  
       delay(10);
-      digitalWrite(5,LOW);
+      digitalWrite(5,LOW);      //strom an buzzer aus
       delay(10);
       }
       lcd.clear();
@@ -109,7 +135,7 @@ void loop() {
   int IRSignal = translateIR();
   switch(IRSignal)
   {
-    case 1: 
+    case 1:       //Ausgabe der Luftfeuchtigkeit
             lcd.print("Luftfeuchtigkeit:");
             lcd.println(dht11.readHumidity());
             lcd.print("%");            
@@ -117,7 +143,7 @@ void loop() {
             lcd.clear();
             
             break;
-    case 2: 
+    case 2:       //Ausgabe der Temperatur
             lcd.print("Temperatur:");
             lcd.println(dht11.readTemperature());
             lcd.print("°C");
@@ -125,15 +151,15 @@ void loop() {
             lcd.clear();
             
             break;
-    case 3: 
+    case 3:        //Ausgabe der Bodenfeuchtigkeit
             lcd.print("Bodenfeuchtigkeit:");
             lcd.println(percHum);
             lcd.print("%");
             delay(1000);
             lcd.clear();
             
-            break;
-    case 4: 
+            break;  
+    case 4:         //Ausgabe, ob genug Wasser vorhanden ist
             lcd.print("WasserStand:");
             if(digitalRead(SENSOR_PIN)==LOW){
               lcd.println("Genug");
