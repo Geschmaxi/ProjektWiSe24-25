@@ -124,10 +124,12 @@ void loop() {
     } else {
       lcd.print("Wasser auffüllen");
       while(digitalRead(SENSOR_PIN) == HIGH){   //Loop wenn Wasserstand zu niedrig
-      digitalWrite(5,HIGH);     //strom an Buzzer an  
-      delay(10);
-      digitalWrite(5,LOW);      //strom an buzzer aus
-      delay(10);
+          if(hour_adjusted>22 ||hour_adjusted < 7){
+                digitalWrite(5,HIGH);     //strom an Buzzer an  
+                delay(10);
+                digitalWrite(5,LOW);      //strom an buzzer aus
+                delay(10);
+          }
       }
       lcd.clear();
     }
