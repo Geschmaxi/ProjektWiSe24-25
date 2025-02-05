@@ -100,7 +100,7 @@ void loop() {
     while(dht11.readTemperature()>=30){
       delay(10);
     }
-    digitalWrite(A0,LOW)
+    digitalWrite(A0,LOW);
   }
   if(hour_adjusted == 7)  //7 Uhr Licht an
     digitalWrite(13,HIGH);
